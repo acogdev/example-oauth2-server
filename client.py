@@ -2,8 +2,8 @@ from flask import Flask, url_for, session, request, jsonify
 from flask_oauthlib.client import OAuth
 
 
-CLIENT_ID = 'GbRmKgbSMmlE2NlugMeFfQIba8hoVyBFsWS8Igsq'
-CLIENT_SECRET = 'BfP7jsN8dSsXjGLfTTPiEvarMJOpkZQ2Y7IVVee8X929LfolMV'
+CLIENT_ID = '158a9MLxGiyRQ6OHniCRQhAzM9TBpXyEURV8k10h'
+CLIENT_SECRET = '1hPU40qCjUmcUwcFEZO8A4W92s8TNsfF43lqMzEbz1hOk6C0XR'
 
 
 app = Flask(__name__)
@@ -27,7 +27,10 @@ remote = oauth.remote_app(
 def index():
     if 'remote_oauth' in session:
         resp = remote.get('me')
-        return jsonify(resp.data)
+        try:
+            return jsonify(resp.data)
+        except:
+            return resp.data
     next_url = request.args.get('next') or request.referrer or None
     return remote.authorize(
         callback=url_for('authorized', next=next_url, _external=True)
@@ -42,7 +45,6 @@ def authorized():
             request.args['error_reason'],
             request.args['error_description']
         )
-    print(resp)
     session['remote_oauth'] = (resp['access_token'], '')
     return jsonify(oauth_token=resp['access_token'])
 
