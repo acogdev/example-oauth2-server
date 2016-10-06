@@ -141,7 +141,7 @@ def home():
     return render_template('home.html', user=user)
 
 
-@app.route('/client')
+
 @app.route('/client/')
 @login_required
 def client():
@@ -260,13 +260,6 @@ def me():
     return jsonify(username=user.username)
 
 
-@app.route('/api/data')
-@oauth.require_oauth()
-def me_data():
-    user = request.oauth.user
-    return jsonify(username=user.username)
-
-
 login_manager = LoginManager()
 login_manager.init_app(app)
 
@@ -274,7 +267,8 @@ login_manager.init_app(app)
 class ProtectedUser(UserMixin):
     # proxy for a database of users
     user_database = {"JohnDoe": ("JohnDoe", "John"),
-                     "JaneDoe": ("JaneDoe", "Jane")}
+                     "JaneDoe": ("JaneDoe", "Jane"),
+                     'Jake': ('Jake', 'pass')}
 
     def __init__(self, username, password):
         self.id = username
