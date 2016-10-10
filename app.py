@@ -7,11 +7,13 @@ from flask import render_template, redirect, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import gen_salt
 from flask_oauthlib.provider import OAuth2Provider
-
+from flask import Response
+from flask.ext.login import LoginManager, UserMixin, login_required
+from itsdangerous import JSONWebSignatureSerializer
 
 app = Flask(__name__, template_folder='templates')
 app.debug = True
-app.secret_key = 'secret'
+app.secret_key = '4222722111573574'
 app.config.update({
     'SQLALCHEMY_DATABASE_URI': 'sqlite:///db.sqlite',
 })
@@ -138,7 +140,8 @@ def home():
     return render_template('home.html', user=user)
 
 
-@app.route('/client')
+@app.route('/client/')
+@login_required
 def client():
     user = current_user()
     if not user:
@@ -151,7 +154,7 @@ def client():
             'http://127.0.0.1:8000/authorized',
             'http://127.0.1:8000/authorized',
             'http://127.1:8000/authorized',
-            ]),
+        ]),
         _default_scopes='email',
         user_id=user.id,
     )
@@ -176,7 +179,7 @@ def load_grant(client_id, code):
 @oauth.grantsetter
 def save_grant(client_id, code, request, *args, **kwargs):
     # decide the expires time yourself
-    expires = datetime.utcnow() + timedelta(seconds=100)
+    expires = datetime.utcnow() + timedelta(seconds=10)
     grant = Grant(
         client_id=client_id,
         code=code['code'],
@@ -245,7 +248,7 @@ def authorize(*args, **kwargs):
         return render_template('authorize.html', **kwargs)
 
     confirm = request.form.get('confirm', 'no')
-    return confirm == 'yes'
+    return True if confirm == 'yes' else False
 
 
 @app.route('/api/me')
@@ -253,6 +256,63 @@ def authorize(*args, **kwargs):
 def me():
     user = request.oauth.user
     return jsonify(username=user.username)
+
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+
+
+class ProtectedUser(UserMixin):
+    # proxy for a database of users
+    user_database = {"JohnDoe": ("JohnDoe", "John"),
+                     "JaneDoe": ("JaneDoe", "Jane"),
+                     'jake': ('jake', 'jake')}
+
+    def __init__(self, username, password):
+        self.id = username
+        self.password = password
+
+    @classmethod
+    def get(cls, id):
+        return cls.user_database.get(id)
+
+
+@login_manager.request_loader
+def load_user(request):
+    token = request.headers.get('Authorization')
+    if token is None:
+        token = request.args.get('token')
+
+    if token is not None:
+        jws = JSONWebSignatureSerializer(app.config["SECRET_KEY"])
+        cred = jws.loads(token)
+
+        username = cred['username']
+        password = cred['password']
+        user_entry = ProtectedUser.get(username)
+        if (user_entry is not None):
+            user = ProtectedUser(user_entry[0], user_entry[1])
+            if (user.password == password):
+                return user
+    return None
+
+
+@app.route("/protected/", methods=["GET"])
+@login_required
+def protected():
+    return Response(response="Hello Protected World!", status=200)
+
+
+@app.route('/token', methods=('GET', 'POST'))
+def token():
+    if request.method == 'GET':
+        return render_template('token.html')
+    else:
+        jws = JSONWebSignatureSerializer(app.config["SECRET_KEY"])
+        user = request.form.get('username')
+        password = request.form.get('password')
+        token = jws.dumps({'username': user, 'password': password})
+        return token
 
 
 if __name__ == '__main__':

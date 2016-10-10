@@ -6,14 +6,17 @@
 </head>
 <body>
   {% if user %}
-    <p>You are {{ user.username }}</p>
+    <p>You are logged in as: {{ user.username }}</p>
   {% else %}
     <p>You are not authenticated</p>
   {% endif %}
 
   <p>Type any username:</p>
   <form method="post" action="/">
-    <input type="text" name="username">
+    <input type="text" name="username" required="required">
+    <br>
+    <input type="password" name="password" required="required">
+    <br>
     <input type="submit">
   </form>
 </body>
