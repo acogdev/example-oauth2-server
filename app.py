@@ -126,6 +126,7 @@ def current_user():
 
 
 @app.route('/', methods=('GET', 'POST'))
+@login_required
 def home():
     if request.method == 'POST':
         username = request.form.get('username')
@@ -143,18 +144,19 @@ def home():
 @app.route('/client/')
 @login_required
 def client():
+    # TODO: This needs to go from creation to retrieval; I think
     user = current_user()
     if not user:
         return redirect('/')
     item = Client(
         client_id=gen_salt(40),
         client_secret=gen_salt(50),
-        _redirect_uris=' '.join([
-            'http://localhost:8000/authorized',
-            'http://127.0.0.1:8000/authorized',
-            'http://127.0.1:8000/authorized',
-            'http://127.1:8000/authorized',
-        ]),
+        _redirect_uris=' '.join(
+            ['http://localhost:8000/authorized',
+             'http://127.0.0.1:8000/authorized',
+             'http://127.0.1:8000/authorized',
+             'http://127.1:8000/authorized',
+             ]),
         _default_scopes='email',
         user_id=user.id,
     )
@@ -179,6 +181,8 @@ def load_grant(client_id, code):
 @oauth.grantsetter
 def save_grant(client_id, code, request, *args, **kwargs):
     # decide the expires time yourself
+    # TODO: Token/grant expire is set to 10 seconds, the original example was
+    #       set to expire after 100 seconds
     expires = datetime.utcnow() + timedelta(seconds=10)
     grant = Grant(
         client_id=client_id,
