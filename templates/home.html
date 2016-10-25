@@ -9,7 +9,7 @@
     <p>You are logged in as: {{ user.username }}</p>
   {% else %}
     <p>You are not authenticated</p>
-  {% endif %}
+
 
   <p>Type any username:</p>
   <form method="post" action="/">
@@ -19,5 +19,8 @@
     <br>
     <input type="submit">
   </form>
+
+  {% endif %}
+
 </body>
 </html>

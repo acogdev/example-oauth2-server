@@ -1,15 +1,28 @@
 # coding: utf-8
 
-from datetime import datetime, timedelta
+from datetime import datetime
+from datetime import timedelta
 from flask import Flask
-from flask import session, request
-from flask import render_template, redirect, jsonify
-from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import gen_salt
-from flask_oauthlib.provider import OAuth2Provider
 from flask import Response
-from flask.ext.login import LoginManager, UserMixin, login_required
+from flask import jsonify
+from flask import redirect
+from flask import render_template
+from flask import render_template_string
+from flask import request
+from flask import session
+from flask import url_for
+from flask_ldap3_login import LDAP3LoginManager
+from flask_login import LoginManager
+from flask_login import UserMixin
+from flask_login import current_user as ldap_current_user
+# from flask_login import login_required
+from flask_oauthlib.provider import OAuth2Provider
+from flask_sqlalchemy import SQLAlchemy
 from itsdangerous import JSONWebSignatureSerializer
+from werkzeug.security import gen_salt
+from flask_ldap3_login.forms import LDAPLoginForm
+from flask_login import login_user
+
 
 app = Flask(__name__, template_folder='templates')
 app.debug = True
@@ -21,9 +34,40 @@ db = SQLAlchemy(app)
 oauth = OAuth2Provider(app)
 
 
+# Hostname of your LDAP Server
+app.config['LDAP_HOST'] = '10.2.30.166'
+
+# Base DN of your directory
+app.config['LDAP_BASE_DN'] = 'dc=ldap,dc=test'
+
+# Users DN to be prepended to the Base DN
+app.config['LDAP_USER_DN'] = 'ou=users'
+
+# Groups DN to be prepended to the Base DN
+app.config['LDAP_GROUP_DN'] = 'ou=groups'
+
+# The RDN attribute for your user schema on LDAP
+app.config['LDAP_USER_RDN_ATTR'] = 'cn'
+
+# The Attribute you want users to authenticate to LDAP with.
+app.config['LDAP_USER_LOGIN_ATTR'] = 'mail'
+
+# The Username to bind to LDAP with
+app.config['LDAP_BIND_USER_DN'] = None
+
+# The Password to bind to LDAP with
+app.config['LDAP_BIND_USER_PASSWORD'] = None
+
+login_manager = LoginManager(app)              # Setup a Flask-Login Manager
+ldap_manager = LDAP3LoginManager(app)          # Setup a LDAP3 Login Manager.
+
+
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(40), unique=True)
+    dn = db.Column(db.Text())
+    data = db.Column(db.Text())
+    memberships = db.Column(db.Text())
 
 
 class Client(db.Model):
@@ -119,32 +163,23 @@ class Token(db.Model):
 
 
 def current_user():
-    if 'id' in session:
-        uid = session['id']
-        return User.query.get(uid)
-    return None
+    if not ldap_current_user or ldap_current_user.is_anonymous:
+        return None
+    user = {'username': ldap_current_user}
 
 
 @app.route('/', methods=('GET', 'POST'))
-@login_required
 def home():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        user = User.query.filter_by(username=username).first()
-        if not user:
-            user = User(username=username)
-            db.session.add(user)
-            db.session.commit()
-        session['id'] = user.id
-        return redirect('/')
-    user = current_user()
-    return render_template('home.html', user=user)
+    if not ldap_current_user or ldap_current_user.is_anonymous:
+        return redirect('http://localhost:5000/login')
+    return render_template('home.html', user=current_user())
 
 
 @app.route('/client/')
-@login_required
 def client():
     # TODO: This needs to go from creation to retrieval; I think
+    if not ldap_current_user or ldap_current_user.is_anonymous:
+        return redirect('http://localhost:5000/login')
     user = current_user()
     if not user:
         return redirect('/')
@@ -216,7 +251,8 @@ def save_token(token, request, *args, **kwargs):
         db.session.delete(t)
 
     expires_in = token.pop('expires_in')
-    expires = datetime.utcnow() + timedelta(seconds=expires_in)
+    # TODO This was using expires_in instead of 10
+    expires = datetime.utcnow() + timedelta(seconds=10)
 
     tok = Token(
         access_token=token['access_token'],
@@ -262,61 +298,111 @@ def me():
     return jsonify(username=user.username)
 
 
-login_manager = LoginManager()
-login_manager.init_app(app)
-
-
 class ProtectedUser(UserMixin):
-    # proxy for a database of users
-    user_database = {"JohnDoe": ("JohnDoe", "John"),
-                     "JaneDoe": ("JaneDoe", "Jane"),
-                     'jake': ('jake', 'jake')}
 
-    def __init__(self, username, password):
+    def __init__(self, username, dn, data):
         self.id = username
-        self.password = password
+        self.dn = dn
+        self.data = data
+
+    def __repr__(self):
+        return self.dn
+
+    def get_id(self):
+        return self.dn
 
     @classmethod
-    def get(cls, id):
-        return cls.user_database.get(id)
+    def get(cls, username):
+        user = User.query.filter_by(username=username).first()
+        return (user.username, user.password)
 
 
-@login_manager.request_loader
-def load_user(request):
-    token = request.headers.get('Authorization')
-    if token is None:
-        token = request.args.get('token')
+# @login_manager.request_loader
+# def load_user(request):
+#     token = request.headers.get('Authorization')
+#     if token is None:
+#         token = request.args.get('token')
 
-    if token is not None:
-        jws = JSONWebSignatureSerializer(app.config["SECRET_KEY"])
-        cred = jws.loads(token)
+#     if token is not None:
+#         jws = JSONWebSignatureSerializer(app.config["SECRET_KEY"])
+#         cred = jws.loads(token)
 
-        username = cred['username']
-        password = cred['password']
-        user_entry = ProtectedUser.get(username)
-        if (user_entry is not None):
-            user = ProtectedUser(user_entry[0], user_entry[1])
-            if (user.password == password):
-                return user
-    return None
+#         username = cred['username']
+#         password = cred['password']
+#         user_entry = ProtectedUser.get(username)
+#         if (user_entry is not None):
+#             user = ProtectedUser(user_entry[0], user_entry[1])
+#             if (user.password == password):
+#                 return user
+#     return None
+
+
+# Declare a User Loader for Flask-Login.
+# Simply returns the User if it exists in our 'database', otherwise
+# returns None.
+@login_manager.user_loader
+def load_user(id):
+    usr = User.query.filter_by(dn=id).first()
+    return ProtectedUser(usr.username, usr.dn, usr.data)
+    # if id in users:
+    #     return users[id]
+    # return None
+
+
+# Declare The User Saver for Flask-Ldap3-Login
+# This method is called whenever a LDAPLoginForm() successfully validates.
+# Here you have to save the user, and return it so it can be used in the
+# login controller.
+@ldap_manager.save_user
+def save_user(dn, username, data, memberships):
+    user = ProtectedUser(username, dn, data)
+    usr = User(username=username, dn=dn, data=str(data), memberships=str(memberships))
+    return user
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    template = """
+    {{ get_flashed_messages() }}
+    {{ form.errors }}
+    <form method="POST">
+        <label>Username{{ form.username() }}</label>
+        <label>Password{{ form.password() }}</label>
+        {{ form.submit() }}
+        {{ form.hidden_tag() }}
+    </form>
+    """
+
+    # Instantiate a LDAPLoginForm which has a validator to check if the user
+    # exists in LDAP.
+    form = LDAPLoginForm()
+
+    if form.validate_on_submit():
+        # Successfully logged in, We can now access the saved user object
+        # via form.user.
+        login_user(form.user)  # Tell flask-login to log them in.
+        return redirect('/')  # Send them home
+
+    return render_template_string(template, form=form)
 
 
 @app.route("/protected/", methods=["GET"])
-@login_required
 def protected():
+    if not ldap_current_user or ldap_current_user.is_anonymous:
+        return redirect('http://localhost:5000/login')
     return Response(response="Hello Protected World!", status=200)
 
 
-@app.route('/token', methods=('GET', 'POST'))
-def token():
-    if request.method == 'GET':
-        return render_template('token.html')
-    else:
-        jws = JSONWebSignatureSerializer(app.config["SECRET_KEY"])
-        user = request.form.get('username')
-        password = request.form.get('password')
-        token = jws.dumps({'username': user, 'password': password})
-        return token
+# @app.route('/token', methods=('GET', 'POST'))
+# def token():
+#     if request.method == 'GET':
+#         return render_template('token.html')
+#     else:
+#         jws = JSONWebSignatureSerializer(app.config["SECRET_KEY"])
+#         user = request.form.get('username')
+#         password = request.form.get('password')
+#         token = jws.dumps({'username': user, 'password': password})
+#         return token
 
 
 if __name__ == '__main__':
