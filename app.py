@@ -15,7 +15,6 @@ from flask_ldap3_login import LDAP3LoginManager
 from flask_login import LoginManager
 from flask_login import UserMixin
 from flask_login import current_user as ldap_current_user
-# from flask_login import login_required
 from flask_oauthlib.provider import OAuth2Provider
 from flask_sqlalchemy import SQLAlchemy
 from itsdangerous import JSONWebSignatureSerializer
@@ -185,8 +184,6 @@ def home():
 @app.route('/client/')
 def client():
     # TODO: This needs to go from creation to retrieval; I think
-    # if not ldap_current_user or ldap_current_user.is_anonymous:
-    #     return redirect('http://localhost:5000/login')
     user = current_user()
 
     if not user:
@@ -330,40 +327,6 @@ class ProtectedUser(UserMixin):
         return (user.username, user.password)
 
 
-# @login_manager.request_loader
-# def load_user(request):
-#     token = request.headers.get('Authorization')
-#     if token is None:
-#         token = request.args.get('token')
-
-#     if token is not None:
-#         jws = JSONWebSignatureSerializer(app.config["SECRET_KEY"])
-#         cred = jws.loads(token)
-
-#         username = cred['username']
-#         password = cred['password']
-#         user_entry = ProtectedUser.get(username)
-#         if (user_entry is not None):
-#             user = ProtectedUser(user_entry[0], user_entry[1])
-#             if (user.password == password):
-#                 return user
-#     return None
-
-
-# from flask import session
-# from wtforms.csrf.session import SessionCSRF
-
-# class MyBaseForm(LDAPLoginForm):
-#     class Meta:
-#         csrf = True
-#         csrf_class = SessionCSRF
-#         csrf_secret = b"app.config['CSRF_SECRET_KEY']"
-
-#         @property
-#         def csrf_context(self):
-#             return session
-
-
 # Declare a User Loader for Flask-Login.
 # Simply returns the User if it exists in our 'database', otherwise
 # returns None.
@@ -371,9 +334,6 @@ class ProtectedUser(UserMixin):
 def load_user(id):
     usr = User.query.filter_by(dn=id).first()
     return ProtectedUser(usr.username, usr.dn, usr.data)
-    # if id in users:
-    #     return users[id]
-    # return None
 
 
 # Declare The User Saver for Flask-Ldap3-Login
@@ -416,7 +376,7 @@ def login():
         # Successfully logged in, We can now access the saved user object
         # via form.user.
         login_user(form.user)  # Tell flask-login to log them in.
-        return redirect('/')  # Send them home
+        return redirect('/')   # Send them home
 
     return render_template_string(template, form=form)
 
@@ -426,18 +386,6 @@ def protected():
     if not ldap_current_user or ldap_current_user.is_anonymous:
         return redirect('http://localhost:5000/login')
     return Response(response="Hello Protected World!", status=200)
-
-
-# @app.route('/token', methods=('GET', 'POST'))
-# def token():
-#     if request.method == 'GET':
-#         return render_template('token.html')
-#     else:
-#         jws = JSONWebSignatureSerializer(app.config["SECRET_KEY"])
-#         user = request.form.get('username')
-#         password = request.form.get('password')
-#         token = jws.dumps({'username': user, 'password': password})
-#         return token
 
 
 if __name__ == '__main__':
