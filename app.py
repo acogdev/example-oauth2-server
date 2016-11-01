@@ -25,7 +25,7 @@ from flask_login import login_user
 
 
 app = Flask(__name__, template_folder='templates')
-app.debug = True
+
 app.secret_key = '4222722111573574'
 app.config.update({
     'SQLALCHEMY_DATABASE_URI': 'sqlite:///db.sqlite',
@@ -162,10 +162,17 @@ class Token(db.Model):
         return []
 
 
+class hiddenUser(object):
+
+    def __init__(self, username, id):
+        self.username = username
+        self.id = id
+
+
 def current_user():
-    if not ldap_current_user or ldap_current_user.is_anonymous:
-        return None
-    user = {'username': ldap_current_user}
+    if 'id' in session:
+        return User.query.filter_by(username=session['id']).first()
+    return None
 
 
 @app.route('/', methods=('GET', 'POST'))
@@ -178,9 +185,10 @@ def home():
 @app.route('/client/')
 def client():
     # TODO: This needs to go from creation to retrieval; I think
-    if not ldap_current_user or ldap_current_user.is_anonymous:
-        return redirect('http://localhost:5000/login')
+    # if not ldap_current_user or ldap_current_user.is_anonymous:
+    #     return redirect('http://localhost:5000/login')
     user = current_user()
+
     if not user:
         return redirect('/')
     item = Client(
@@ -224,7 +232,7 @@ def save_grant(client_id, code, request, *args, **kwargs):
         code=code['code'],
         redirect_uri=request.redirect_uri,
         _scopes=' '.join(request.scopes),
-        user=current_user(),
+        user=current_user(),  # TODO this user parameter needs to be a DB object
         expires=expires
     )
     db.session.add(grant)
@@ -291,6 +299,11 @@ def authorize(*args, **kwargs):
     return True if confirm == 'yes' else False
 
 
+@app.route('/oauth/errors')
+def errors():
+    return 'ERROR: ' + request.args.get('error')
+
+
 @app.route('/api/me')
 @oauth.require_oauth()
 def me():
@@ -337,6 +350,20 @@ class ProtectedUser(UserMixin):
 #     return None
 
 
+# from flask import session
+# from wtforms.csrf.session import SessionCSRF
+
+# class MyBaseForm(LDAPLoginForm):
+#     class Meta:
+#         csrf = True
+#         csrf_class = SessionCSRF
+#         csrf_secret = b"app.config['CSRF_SECRET_KEY']"
+
+#         @property
+#         def csrf_context(self):
+#             return session
+
+
 # Declare a User Loader for Flask-Login.
 # Simply returns the User if it exists in our 'database', otherwise
 # returns None.
@@ -357,6 +384,15 @@ def load_user(id):
 def save_user(dn, username, data, memberships):
     user = ProtectedUser(username, dn, data)
     usr = User(username=username, dn=dn, data=str(data), memberships=str(memberships))
+
+    session['id'] = usr.username
+
+    if usr.username == User.query.filter_by(dn=dn).first().username:
+        return user
+
+    db.session.add(usr)
+    db.session.commit()
+
     return user
 
 
@@ -369,13 +405,12 @@ def login():
         <label>Username{{ form.username() }}</label>
         <label>Password{{ form.password() }}</label>
         {{ form.submit() }}
-        {{ form.hidden_tag() }}
     </form>
     """
 
     # Instantiate a LDAPLoginForm which has a validator to check if the user
     # exists in LDAP.
-    form = LDAPLoginForm()
+    form = LDAPLoginForm(csrf_enabled=False)
 
     if form.validate_on_submit():
         # Successfully logged in, We can now access the saved user object
@@ -407,4 +442,5 @@ def protected():
 
 if __name__ == '__main__':
     db.create_all()
+    app.debug = True
     app.run()
