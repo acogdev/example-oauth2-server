@@ -12,15 +12,15 @@ from flask import request
 from flask import session
 from flask import url_for
 from flask_ldap3_login import LDAP3LoginManager
+from flask_ldap3_login.forms import LDAPLoginForm
 from flask_login import LoginManager
 from flask_login import UserMixin
 from flask_login import current_user as ldap_current_user
+from flask_login import login_user
 from flask_oauthlib.provider import OAuth2Provider
 from flask_sqlalchemy import SQLAlchemy
 from itsdangerous import JSONWebSignatureSerializer
 from werkzeug.security import gen_salt
-from flask_ldap3_login.forms import LDAPLoginForm
-from flask_login import login_user
 
 
 app = Flask(__name__, template_folder='templates')
@@ -161,13 +161,6 @@ class Token(db.Model):
         return []
 
 
-class hiddenUser(object):
-
-    def __init__(self, username, id):
-        self.username = username
-        self.id = id
-
-
 def current_user():
     if 'id' in session:
         return User.query.filter_by(username=session['id']).first()
@@ -229,7 +222,7 @@ def save_grant(client_id, code, request, *args, **kwargs):
         code=code['code'],
         redirect_uri=request.redirect_uri,
         _scopes=' '.join(request.scopes),
-        user=current_user(),  # TODO this user parameter needs to be a DB object
+        user=current_user(),
         expires=expires
     )
     db.session.add(grant)
@@ -347,8 +340,9 @@ def save_user(dn, username, data, memberships):
 
     session['id'] = usr.username
 
-    if usr.username == User.query.filter_by(dn=dn).first().username:
-        return user
+    if User.query.filter_by(dn=dn).first() is not None:
+        if usr.username == User.query.filter_by(dn=dn).first().username:
+            return user
 
     db.session.add(usr)
     db.session.commit()
